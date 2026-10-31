@@ -128,6 +128,11 @@
                     "height": 30,
                     "position": "top",
                     "reveal": "always"
+                  },
+                  "footer": {
+                    "content": {
+                      "mod": "compose"
+                    }
                   }
                 }
               }

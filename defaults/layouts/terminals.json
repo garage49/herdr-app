@@ -41,7 +41,8 @@
           "focus": { "width": 1, "color": "#33363b" },
           "radius": 12,
           "gap": 8,
-          "lone": true
+          "lone": true,
+          "footer": { "content": { "mod": "compose" } }
         }
       }
     }

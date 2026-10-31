@@ -243,12 +243,25 @@ impl Header {
     }
 }
 
-/// How a layout wraps each pane of the tab it shows: a look, and a
-/// header mod per pane (told its `pane` and `terminal` in props).
+/// A mod under each pane's terminal (above a bottom header), one copy per
+/// pane. Without a height it is as tall as what it renders: nothing hides it,
+/// so a mod can appear on a command and go when done.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Footer {
+    pub content: HeaderContent,
+    /// Height in px; absent: as tall as its content.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub height: Option<f32>,
+}
+
+/// How a layout wraps each pane of the tab it shows: a look, and a header
+/// and a footer mod per pane (told its `pane` and `terminal` in props).
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct PaneFrame {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub header: Option<Header>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub footer: Option<Footer>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub background: Option<Background>,
     /// `sm`, `md` or `lg`.
@@ -780,8 +793,24 @@ mod tests {
         let h = f.header.as_ref().unwrap();
         assert!(h.hover() && h.bottom() && f.lone);
         assert_eq!((f.radius, f.gap, h.height), (Some(10.0), Some(8.0), Some(28.0)));
+        assert!(f.footer.is_none());
         let back: Node = serde_json::from_str(&serde_json::to_string(&n).unwrap()).unwrap();
         assert_eq!(back, n);
+    }
+
+    #[test]
+    fn a_pane_frame_may_put_a_mod_under_each_terminal() {
+        let json = r#"{ "id": "main", "type": "block", "content": { "tab": "active",
+          "pane": { "footer": { "content": { "mod": "compose" } } } } }"#;
+        let n: Node = serde_json::from_str(json).unwrap();
+        let Some(Content::Context { pane: Some(f), .. }) = n.content() else { panic!("no frame") };
+        let foot = f.footer.as_ref().unwrap();
+        assert_eq!(foot.content, HeaderContent::Mod { name: "compose".into(), props: Value::Null });
+        assert_eq!(foot.height, None, "no height: as tall as its content");
+        let back: Node = serde_json::from_str(&serde_json::to_string(&n).unwrap()).unwrap();
+        assert_eq!(back, n);
+        let fixed: Footer = serde_json::from_str(r#"{ "content": { "mod": "compose" }, "height": 60 }"#).unwrap();
+        assert_eq!(fixed.height, Some(60.0));
     }
 
     #[test]

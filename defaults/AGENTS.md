@@ -341,6 +341,7 @@ The tab block says how each pane of the shown tab is wrapped:
   "pane": { "gap": 6, "radius": 6, "background": "surface",
             "border": { "width": 1, "color": "border" }, "focus": { "width": 1, "color": "accent" },
             "header": { "content": { "mod": "pane" }, "height": 30, "position": "top", "reveal": "always" },
+            "footer": { "content": { "mod": "compose" } },
             "lone": false } }
 ```
 
@@ -353,6 +354,15 @@ The tab block says how each pane of the shown tab is wrapped:
   `pane.close`). `position`: `top` or `bottom`; `reveal: "hover"` shows it
   only while the pointer is on the pane, drawn over the terminal so the
   terminal never resizes. The shipped `pane` mod is an example header.
+- `footer`: a mod drawn under each pane's terminal (above a bottom header),
+  one copy per pane with the same `props().pane` and `props().terminal`.
+  Without `height` it is as tall as what it renders (up to half the pane), so
+  a mod that renders nothing is invisible and the terminal has the whole pane:
+  it can appear on a command and go when done. The shipped `compose` mod is one: `compose.open`
+  (Cmd+Enter on macOS, Ctrl+Enter elsewhere) shows a box under the focused
+  pane to write a whole message in; Enter sends it to that terminal in one
+  piece (`hc send`, as an agent's message goes in), Esc puts the box away and
+  keeps the draft per terminal.
 - `lone: true` frames a tab's only pane too (default: only when split).
 - Each layout has its own, so one can stay bare while another makes
   every pane a card.
@@ -741,8 +751,9 @@ has 120 programs (agents, editors, runtimes, tools, databases, infra);
   (tinted with the text color).
 - The defaults are mods too, read them as examples: `spaces`, `agents`,
   `tabs` (the tab bar), `menu`, `prompt`, `confirm`, `help`, `toast`,
-  Terminals' `picker`, `peek`, and `pane` (an
-  example pane header, not used by the default layouts), and `worktree`
+  Terminals' `picker`, `peek`, `pane` (an
+  example pane header, not used by the default layouts), `compose` (the
+  pane footer that sends a whole message to the pane's terminal), and `worktree`
   (git worktrees as spaces: the space menu's and the + menu's New worktree,
   Open worktree (the repo's checkouts, filtered; one already shown is gone
   to) and Remove worktree open it as a dialog with props `{space, folder?,

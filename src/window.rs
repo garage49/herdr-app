@@ -1158,15 +1158,16 @@ impl AppWindow {
         if self.shows_tab()
             && let Some(c) = self.model.active_tab()
         {
-            let header = self.pane_frame().and_then(|f| f.header.as_ref()).and_then(|h| match &h.content {
-                HeaderContent::Mod { name, props } => Some((name.clone(), props.clone())),
-                HeaderContent::Builtin(_) => None,
-            });
+            let header = self.pane_frame().and_then(|f| f.header.as_ref()).and_then(|h| frame_mod(&h.content));
+            let footer = self.pane_frame().and_then(|f| f.footer.as_ref()).and_then(|ft| frame_mod(&ft.content));
             for n in c.shown().visible_blocks() {
-                if let Some((name, props)) = &header
-                    && n.is_pane()
-                {
-                    mods.push(pane_header_mod(n, name, props));
+                if n.is_pane() {
+                    if let Some((name, props)) = &header {
+                        mods.push(pane_frame_mod(n, "frame", name, props));
+                    }
+                    if let Some((name, props)) = &footer {
+                        mods.push(pane_frame_mod(n, "footer", name, props));
+                    }
                 }
                 visit(n, &mut terms, &mut mods);
                 if let Some(a) = self.swapped.get(&n.id) {
@@ -1209,29 +1210,27 @@ impl AppWindow {
                 }
             }
         }
-        // The layout's pane header, shown or not (`pane_frame` says what's drawn now).
-        let header = self
-            .chrome
-            .walk()
-            .into_iter()
-            .find_map(|n| match n.content() {
-                Some(Content::Context { pane: Some(f), .. }) => f.header.as_ref(),
-                _ => None,
-            })
-            .and_then(|h| match &h.content {
-                HeaderContent::Mod { name, props } => Some((name.clone(), props.clone())),
-                HeaderContent::Builtin(_) => None,
-            });
+        // The layout's pane header and footer, shown or not (`pane_frame` says what's drawn now).
+        let frame = self.chrome.walk().into_iter().find_map(|n| match n.content() {
+            Some(Content::Context { pane: Some(f), .. }) => Some(f),
+            _ => None,
+        });
+        let header = frame.and_then(|f| f.header.as_ref()).and_then(|h| frame_mod(&h.content));
+        let footer = frame.and_then(|f| f.footer.as_ref()).and_then(|ft| frame_mod(&ft.content));
         for c in self.model.tabs() {
             for n in c.root.walk() {
                 if let Some(Content::Mod { name, props }) = n.content() {
                     out.insert(n.id.clone(), inst(name, props));
                 }
-                if let Some((name, props)) = &header
-                    && n.is_pane()
-                {
-                    let (slot, i) = pane_header_mod(n, name, props);
-                    out.insert(slot, i);
+                if n.is_pane() {
+                    if let Some((name, props)) = &header {
+                        let (slot, i) = pane_frame_mod(n, "frame", name, props);
+                        out.insert(slot, i);
+                    }
+                    if let Some((name, props)) = &footer {
+                        let (slot, i) = pane_frame_mod(n, "footer", name, props);
+                        out.insert(slot, i);
+                    }
                 }
             }
         }
@@ -1402,7 +1401,8 @@ impl AppWindow {
         for (slot, inst) in want {
             if !self.copies.contains_key(&slot) {
                 let copy = self.load(inst, window, cx);
-                if slot.starts_with("float:")
+                // Floats and pane footers are as big as what they render.
+                if (slot.starts_with("float:") || slot.ends_with("#footer"))
                     && let Some(root) = &copy.root
                 {
                     root.update(cx, |r, cx| r.set_fit_content(true, cx));
@@ -3658,15 +3658,24 @@ impl AppWindow {
         }
         el = shadow(el, f.shadow.as_deref());
         let body = div().flex_1().min_h_0().flex().child(inner);
-        let Some(h) = &f.header else { return el.child(body).into_any_element() };
+        // Under the terminal: as tall as what the mod renders (up to half the pane),
+        // unless given a height.
+        let foot = f.footer.as_ref().map(|ft| {
+            let foot = div().flex_none().w_full().flex().child(self.render_slot(&format!("{}#footer", n.id), cx));
+            match ft.height {
+                Some(h) => foot.h(settings::z(h)),
+                None => foot.max_h(relative(0.5)),
+            }
+        });
+        let Some(h) = &f.header else { return el.child(body).children(foot).into_any_element() };
         let head = div().flex_none().h(settings::z(h.height.unwrap_or(HEADER_HEIGHT))).w_full().flex()
             .child(self.render_slot(&format!("{}#frame", n.id), cx));
         if h.hover() {
             let head = head.absolute().left_0().right_0().opacity(0.).group_hover(group, |s| s.opacity(1.));
             let head = if h.bottom() { head.bottom_0() } else { head.top_0() };
-            return el.child(body).child(head).into_any_element();
+            return el.child(body).children(foot).child(head).into_any_element();
         }
-        if h.bottom() { el.child(body).child(head) } else { el.child(head).child(body) }.into_any_element()
+        if h.bottom() { el.child(body).children(foot).child(head) } else { el.child(head).child(body).children(foot) }.into_any_element()
     }
 
     /// `frame`: how panes are wrapped here (inside a framed tab), else None.
@@ -3799,6 +3808,8 @@ impl AppWindow {
 
     fn render_slot(&self, slot: &str, cx: &mut Context<Self>) -> AnyElement {
         let in_overlay = slot.starts_with("overlay:") || self.overlays.iter().any(|o| o.layout.as_ref().is_some_and(|l| l.find(slot).is_some()));
+        // Sized by the mod's content, not by the block: popups, and a pane footer (`<pane>#footer`).
+        let fit = in_overlay || slot.ends_with("#footer");
         // A mod that is a pane in a tab: a click makes it the focused pane, and the
         // keyboard is its own (an editor, a board), like a terminal's.
         let in_pane = self.model.tab_of(slot).is_some();
@@ -3834,16 +3845,18 @@ impl AppWindow {
                         });
                     }))
                 })
-                // Popups size to their content, up to the window: a column, so a mod
-                // root with `min_h(0)` can shrink and scroll. Layout mods fill their block.
+                // Popups size to their content, up to the window, and a footer to its
+                // content: a column, so a mod root with `min_h(0)` can shrink and scroll.
+                // Layout mods fill their block.
                 // Not cached here: ShellRoot caches the mod's view itself and draws its
                 // spinners over it, waking only itself (GPUI rebuilds all under a cached
                 // view that changed, so a spinner step would rebuild the mod).
-                .map(|d| if in_overlay { d.h_auto().min_h_0().flex().flex_col().child(root.clone()) } else { d.child(root.clone()) })
+                .map(|d| if fit { d.h_auto().min_h_0().flex().flex_col().child(root.clone()) } else { d.child(root.clone()) })
                 .into_any_element(),
             Some(Copy { error, inst, .. }) => div()
                 .id(SharedString::from(format!("err-{slot}")))
                 .size_full()
+                .when(fit, |d| d.h_auto().min_h_0())
                 .p_2()
                 .text_xs()
                 .text_color(c("blocked"))
@@ -4287,12 +4300,21 @@ fn float_mod(id: &str, name: &str, props: &Value) -> (String, Instance) {
     (floats::slot(id), Instance { name: name.to_owned(), props })
 }
 
-/// A pane header's slot and copy, told which pane it sits on (a mod pane has no terminal).
-fn pane_header_mod(n: &Node, name: &str, props: &Value) -> (String, Instance) {
+/// The mod a pane frame's header or footer names, if it is one (not the built-in tabs).
+fn frame_mod(content: &HeaderContent) -> Option<(String, Value)> {
+    match content {
+        HeaderContent::Mod { name, props } => Some((name.clone(), props.clone())),
+        HeaderContent::Builtin(_) => None,
+    }
+}
+
+/// A pane frame mod's slot (`<pane>#frame` for the header, `<pane>#footer` for the
+/// footer) and copy, told which pane it sits on (a mod pane has no terminal).
+fn pane_frame_mod(n: &Node, slot: &str, name: &str, props: &Value) -> (String, Instance) {
     let mut props = if props.is_object() { props.clone() } else { json!({}) };
     props["pane"] = json!(n.id);
     props["terminal"] = json!(n.terminal());
-    (format!("{}#frame", n.id), Instance { name: name.to_owned(), props })
+    (format!("{}#{slot}", n.id), Instance { name: name.to_owned(), props })
 }
 
 /// Every node shown on screen (hidden ones and inactive stack children skipped).

@@ -22,6 +22,7 @@
     "cmd-shift-d": "pane.split:down",
     "cmd-shift-w": "pane.close",
     "cmd-shift-enter": "pane.zoom",
+    "cmd-enter": "compose.open",
     "cmd-alt-left": "pane.go:left",
     "cmd-alt-right": "pane.go:right",
     "cmd-alt-up": "pane.go:up",
